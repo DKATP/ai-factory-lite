@@ -1,0 +1,50 @@
+[project]
+name = "ai-factory-lite"
+version = "0.1.0"
+description = "An operable multi-country demand forecasting pipeline: Databricks Jobs, Asset Bundles, MLflow on Unity Catalog, CI/CD, FinOps tagging and observability"
+requires-python = ">=3.12"
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "scikit-learn>=1.3",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# MLflow is optional on purpose: the forecasting and promotion logic must run and be tested
+# without it, so CI stays fast and the code is not coupled to one tracking backend.
+mlflow = ["mlflow>=2.14"]
+dev = ["pytest>=7.4", "black>=24.0", "isort>=5.13", "mypy>=1.8", "pandas-stubs", "types-PyYAML"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 110
+target-version = ["py312"]
+
+[tool.isort]
+profile = "black"
+line_length = 110
+known_first_party = ["aifactory"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+disallow_any_generics = true
+show_error_codes = true
+plugins = []
+
+[[tool.mypy.overrides]]
+module = ["sklearn.*", "mlflow.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"

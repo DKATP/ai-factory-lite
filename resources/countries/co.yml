@@ -1,0 +1,39 @@
+# Colombia. Note the far longer holiday list: Colombia moves several holidays to Monday,
+# which produces a different weekly pattern from Mexico. Modelling both markets with one
+# shared calendar is a classic multi-country forecasting bug.
+code: co
+name: Colombia
+currency: COP
+timezone: America/Bogota
+forecast_horizon_days: 28
+seasonal_period_days: 7
+min_history_days: 365
+promo_frequency: 0.05
+base_demand: 940.0
+holidays:
+  - "2025-01-01"
+  - "2025-01-06"
+  - "2025-03-24"
+  - "2025-05-01"
+  - "2025-06-02"
+  - "2025-07-20"
+  - "2025-08-07"
+  - "2025-08-18"
+  - "2025-10-13"
+  - "2025-11-03"
+  - "2025-11-17"
+  - "2025-12-08"
+  - "2025-12-25"
+  - "2026-01-01"
+  - "2026-01-12"
+  - "2026-03-23"
+  - "2026-05-01"
+  - "2026-06-15"
+  - "2026-07-20"
+  - "2026-08-07"
+  - "2026-08-17"
+  - "2026-10-12"
+  - "2026-11-02"
+  - "2026-11-16"
+  - "2026-12-08"
+  - "2026-12-25"

@@ -1,0 +1,26 @@
+# Mexico. Each country file is the only thing that changes when a market is added, which is
+# why holidays, horizon and demand scale all live here rather than in code.
+code: mx
+name: Mexico
+currency: MXN
+timezone: America/Mexico_City
+forecast_horizon_days: 28
+seasonal_period_days: 7
+min_history_days: 365
+promo_frequency: 0.07
+base_demand: 1850.0
+holidays:
+  - "2025-01-01"   # Año Nuevo
+  - "2025-02-03"   # Día de la Constitución
+  - "2025-03-17"   # Natalicio de Benito Juárez
+  - "2025-05-01"   # Día del Trabajo
+  - "2025-09-16"   # Día de la Independencia
+  - "2025-11-17"   # Revolución Mexicana
+  - "2025-12-25"   # Navidad
+  - "2026-01-01"
+  - "2026-02-02"
+  - "2026-03-16"
+  - "2026-05-01"
+  - "2026-09-16"
+  - "2026-11-16"
+  - "2026-12-25"
