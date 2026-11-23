@@ -148,6 +148,13 @@ Backtesting is rolling-origin with a minimum training window of `max(2 × horizo
 A fold with less training data than that produces a number without meaning, and averaging it
 in makes the model look better than it is.
 
+Seasonal-naive MASE lands at 0.93 (ar), 1.04 (mx) and 1.13 (co) — near 1, which is the only
+honest answer for a baseline scaled by its own in-sample error. Those figures are fixed:
+the generator is seeded with a CRC32 of the country code rather than Python's `hash()`,
+which is salted per process, and a test runs it in three fresh interpreters under different
+`PYTHONHASHSEED` values to keep it that way. A pipeline whose inputs change between runs
+cannot be replayed, which is the property everything else here depends on.
+
 ---
 
 ## FinOps
@@ -172,7 +179,7 @@ The full list of what the free tier does and does not allow is in
 
 ```bash
 pip install -e ".[dev]"
-black --check src tests && isort --check-only src tests && mypy src && pytest -q   # 136 tests
+black --check src tests && isort --check-only src tests && mypy src && pytest -q   # 138 tests
 ```
 
 With a workspace:
@@ -192,7 +199,7 @@ resources/countries/        mx · co · ar — a new market is a file, not a cod
 resources/policies/         example cluster policy (paid workspaces)
 src/aifactory/              config · io · backtest · data/ · models/
 src/aifactory/tasks/        thin job entrypoints; no business logic lives here
-tests/                      136 tests — DAG invariants, quality gates, backtest maths,
+tests/                      138 tests — DAG invariants, quality gates, backtest maths,
                             failure semantics, idempotence, entry-point resolution
 docs/                       free_edition_notes · runbook
 ```

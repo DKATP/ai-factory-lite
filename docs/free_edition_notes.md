@@ -46,7 +46,7 @@ Everything in `src/aifactory/` except `io.py` and `tasks/` is plain typed Python
 Databricks or Spark import. `io.py` checks once for an active Spark session and falls back to
 Parquet on the local filesystem. `tasks/` are argument parsers.
 
-So the whole pipeline runs — and is tested, 136 tests in CI — on a laptop with no workspace:
+So the whole pipeline runs — and is tested, 138 tests in CI — on a laptop with no workspace:
 
 ```bash
 pip install -e ".[dev]"
