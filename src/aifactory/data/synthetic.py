@@ -16,6 +16,7 @@ that nothing was ever thrown at them.
 
 from __future__ import annotations
 
+import zlib
 from dataclasses import dataclass
 from datetime import date, timedelta
 
@@ -46,6 +47,22 @@ class DefectConfig:
     truncate_last_days: int = 0  # simulates a late or partial upstream partition
 
 
+def _country_offset(code: str) -> int:
+    """A stable per-country seed offset, so each market gets its own demand but the same
+    market gets the same demand every time.
+
+    CRC32 rather than Python's ``hash()``. ``hash()`` on a string is salted per process
+    unless ``PYTHONHASHSEED`` is fixed, so seeding an RNG with it produces different data on
+    every run — which is not a flaky test, it is a pipeline that cannot be replayed. This
+    project's whole premise is that a run is pinned to an as-of date and reproducible, and a
+    non-deterministic generator quietly breaks that at the source.
+
+    Found by CI: a MASE assertion passed locally and on 3.13 and failed on 3.12, because the
+    data was different each time rather than because the two interpreters differ.
+    """
+    return int(zlib.crc32(code.encode("utf-8")) % 10_000)
+
+
 def _fourier(day_of_year: np.ndarray, order: int = 3) -> np.ndarray:
     angles = 2 * np.pi * day_of_year[:, None] * np.arange(1, order + 1) / 365.25
     return np.hstack([np.sin(angles), np.cos(angles)])
@@ -62,7 +79,7 @@ def make_panel(
     """A daily demand panel for one country, inclusive of both endpoints."""
     if end < start:
         raise ValueError("end must not be before start")
-    rng = np.random.default_rng(seed + abs(hash(country.code)) % 10_000)
+    rng = np.random.default_rng(seed + _country_offset(country.code))
     dates = pd.date_range(start, end, freq="D")
     holidays = {pd.Timestamp(d) for d in country.holidays}
     day_of_year = dates.dayofyear.to_numpy(dtype=float)

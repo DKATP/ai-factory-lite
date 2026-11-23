@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from datetime import date, timedelta
 
 import pandas as pd
@@ -18,6 +21,53 @@ def test_panel_has_the_declared_schema_and_is_deterministic(country: CountryConf
     second = syn.make_panel(country, start, end, seed=7)
     assert list(first.columns) == list(syn.SCHEMA)
     pd.testing.assert_frame_equal(first, second)
+
+
+def test_panel_is_deterministic_across_processes() -> None:
+    """The test above is not enough, and the gap is the whole point of this one.
+
+    The generator used to seed its RNG with ``hash(country.code)``. Python salts string
+    hashing per process unless ``PYTHONHASHSEED`` is fixed, so the data was identical within
+    one run and different between runs. A same-process comparison cannot see that: it passed
+    locally and on 3.13, and CI failed on 3.12 with a MASE of 1.28 against a 1.25 bound —
+    which looked like an interpreter difference and was actually non-reproducible data.
+
+    That is not a flaky test. A pipeline whose inputs change between runs cannot be replayed,
+    and replayability is the property this whole project claims. So the guard runs the
+    generator in two fresh interpreters under different hash seeds and compares checksums.
+    """
+    program = (
+        "from datetime import date;"
+        "from aifactory.config import load_country;"
+        "from aifactory.data.synthetic import make_panel, default_window;"
+        "c = load_country('co');"
+        "s, e = default_window(date(2026, 11, 20), 200);"
+        "p = make_panel(c, s, e, seed=7);"
+        "print(round(float(p['demand'].sum()), 6))"
+    )
+    checksums = set()
+    for hash_seed in ("0", "1", "random"):
+        environment = {**os.environ, "PYTHONHASHSEED": hash_seed}
+        completed = subprocess.run(
+            [sys.executable, "-c", program],
+            capture_output=True,
+            text=True,
+            check=True,
+            env=environment,
+        )
+        checksums.add(completed.stdout.strip())
+
+    assert len(checksums) == 1, f"generator is not reproducible across processes: {checksums}"
+
+
+def test_each_country_gets_its_own_data() -> None:
+    """Determinism must not be bought by making every market identical."""
+    start, end = syn.default_window(AS_OF, 200)
+    totals = {
+        code: syn.make_panel(load_country(code), start, end, seed=7)["demand"].sum()
+        for code in ("mx", "co", "ar")
+    }
+    assert len(set(totals.values())) == 3, totals
 
 
 def test_history_window_never_includes_the_as_of_day() -> None:
