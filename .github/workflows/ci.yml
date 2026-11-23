@@ -36,3 +36,38 @@ jobs:
         run: mypy src
       - name: Tests
         run: pytest -q
+
+  bundle:
+    name: bundle validate
+    runs-on: ubuntu-latest
+    # `databricks bundle validate` is NOT a local, offline check. It calls the workspace's
+    # SCIM /Me endpoint to resolve the current user before it resolves anything else, so it
+    # fails without a reachable workspace and a valid token — it cannot be a gate on a repo
+    # that has no workspace behind it.
+    #
+    # That is precisely why the DAG's invariants live in tests/test_bundle.py instead: those
+    # parse the same YAML, run everywhere in under a second, and assert the things validate
+    # does not check anyway — that retries are declared per task, that nothing runs without
+    # a timeout, that only observability tasks may run after a failure, and that the run log
+    # observes every task in its job.
+    #
+    # This job therefore runs only where credentials exist, and is a no-op otherwise rather
+    # than a permanently red badge.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: databricks/setup-cli@main
+      - name: Validate every target
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          if [ -z "$DATABRICKS_HOST" ]; then
+            echo "No DATABRICKS_HOST secret configured; skipping."
+            echo "The DAG invariants are covered by tests/test_bundle.py in the quality job."
+            exit 0
+          fi
+          for target in dev qa prd; do
+            echo "::group::$target"
+            databricks bundle validate --target "$target"
+            echo "::endgroup::"
+          done

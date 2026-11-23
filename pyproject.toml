@@ -8,7 +8,22 @@ dependencies = [
     "numpy>=1.24",
     "scikit-learn>=1.3",
     "pyyaml>=6.0",
+    # Parquet is the off-platform storage format in aifactory.io, so it is a hard dependency
+    # rather than an extra: without it the local fallback silently has no engine.
+    "pyarrow>=14.0",
 ]
+
+# Console scripts are the contract between this package and the Jobs DAG. Each
+# `python_wheel_task` in resources/jobs/ names one of these entry points, and a test asserts
+# that every entry point referenced in the YAML exists here — so renaming a function cannot
+# silently break a deployed job.
+[project.scripts]
+aifactory-ingest = "aifactory.tasks.ingest:main"
+aifactory-quality-gate = "aifactory.tasks.quality_gate:main"
+aifactory-profile-data = "aifactory.tasks.profile_data:main"
+aifactory-backtest-champion = "aifactory.tasks.backtest_champion:main"
+aifactory-run-log = "aifactory.tasks.run_log:main"
+aifactory-fleet-summary = "aifactory.tasks.fleet_summary:main"
 
 [project.optional-dependencies]
 # MLflow is optional on purpose: the forecasting and promotion logic must run and be tested
@@ -41,7 +56,7 @@ show_error_codes = true
 plugins = []
 
 [[tool.mypy.overrides]]
-module = ["sklearn.*", "mlflow.*"]
+module = ["sklearn.*", "mlflow.*", "pyspark.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

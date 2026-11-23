@@ -1,0 +1,110 @@
+# Databricks Asset Bundle — the deployable definition of this project.
+#
+# One definition, three targets. The same job YAML is deployed to dev, qa and prd; what
+# changes between them is the catalog it writes to, whether the schedule is live, and who
+# the job runs as. Nothing environment-specific is written inside a task.
+#
+# Validate and deploy:
+#   databricks bundle validate --target dev
+#   databricks bundle deploy   --target dev
+#   databricks bundle run demand_forecast_orchestrator --target dev
+#
+# Free Edition note: Asset Bundles work from a local CLI against a Free Edition workspace,
+# but *not* from inside a workspace Git folder, and the three targets become three catalogs
+# in one metastore rather than three workspaces. See docs/free_edition_notes.md.
+
+bundle:
+  name: ai-factory-lite
+
+# The wheel is built from this repository and attached to every task, so the code running on
+# the platform is the same artifact CI tested — not a notebook someone edited in the UI.
+artifacts:
+  aifactory_wheel:
+    type: whl
+    build: python -m build --wheel
+    path: .
+
+variables:
+  catalog_prefix:
+    description: Unity Catalog prefix; the target appends _dev / _qa / _prd.
+    default: aifactory
+
+  countries:
+    description: >-
+      Markets the orchestrator fans out over. A new market is one line here plus one file in
+      resources/countries/ — never a code change.
+    default: '["mx", "co", "ar"]'
+
+  country_concurrency:
+    description: >-
+      How many country pipelines run at once. Free Edition allows 5 concurrent job tasks in
+      total; 2 child jobs x 2 parallel tasks each + the parent for_each task = 5 exactly.
+    default: 2
+
+  alert_email:
+    description: Where job-level failure notifications go.
+    default: alerts@example.invalid
+
+  max_job_seconds:
+    description: >-
+      Job-level timeout. A forecasting run that has not finished in this long is stuck, and
+      an unbounded job holds compute until someone notices.
+    default: 10800
+
+  # ---- FinOps -------------------------------------------------------------------------
+  # Three dimensions on every resource, chosen so a bill can be split by market, by use case
+  # and by environment without anyone maintaining a spreadsheet. `env` comes from the target,
+  # so it cannot drift from where the job actually runs.
+  cost_center:
+    default: data-platform
+
+  product_tag:
+    default: demand_forecast
+
+include:
+  - resources/jobs/*.yml
+
+targets:
+  # Development: resources are prefixed with the deploying user's name and schedules are
+  # paused, so two people can deploy at once without colliding and a dev deploy never starts
+  # firing on its own.
+  dev:
+    mode: development
+    default: true
+    variables:
+      alert_email: dev-null@example.invalid
+    presets:
+      name_prefix: "[dev ${workspace.current_user.short_name}] "
+      tags:
+        env: dev
+        cost_center: ${var.cost_center}
+        product: ${var.product_tag}
+
+  # QA: deployed like production — same names, same schedule shape — but paused and pointed
+  # at its own catalog. The point of qa is to catch what only appears when the bundle is
+  # deployed the production way, so it must not inherit development mode's renaming.
+  qa:
+    mode: production
+    workspace:
+      root_path: /Workspace/Shared/.bundle/ai-factory-lite/qa
+    variables:
+      country_concurrency: 1
+    presets:
+      trigger_pause_status: PAUSED
+      tags:
+        env: qa
+        cost_center: ${var.cost_center}
+        product: ${var.product_tag}
+
+  prd:
+    mode: production
+    workspace:
+      root_path: /Workspace/Shared/.bundle/ai-factory-lite/prd
+    variables:
+      alert_email: data-oncall@example.invalid
+    presets:
+      trigger_pause_status: UNPAUSED
+      tags:
+        env: prd
+        cost_center: ${var.cost_center}
+        product: ${var.product_tag}

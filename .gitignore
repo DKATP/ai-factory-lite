@@ -10,3 +10,6 @@ mlruns/
 *.parquet
 .DS_Store
 .env
+_data/
+dist/
+build/

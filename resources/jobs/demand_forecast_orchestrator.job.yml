@@ -1,0 +1,95 @@
+# The multi-country entry point. Fans out over the configured markets and runs the
+# per-country pipeline once for each.
+#
+# Why a parent job with `for_each_task` -> `run_job_task`, rather than one flat job with the
+# country in a loop?
+#
+#   A `for_each_task` can only wrap a *single* nested task, not a DAG. The per-country work
+#   is a five-task DAG with its own dependencies and `run_if` rules. The way to iterate over
+#   a DAG is therefore to make it its own job and call it with `run_job_task`. The side
+#   benefits are real: one market can be re-run on its own without touching the others, and
+#   each market's failures are isolated to its own run page.
+#
+# `concurrency` is capped by a platform limit, not by preference — see the variable's
+# description in databricks.yml.
+
+resources:
+  jobs:
+    demand_forecast_orchestrator:
+      name: demand_forecast_orchestrator
+
+      max_concurrent_runs: 1
+      timeout_seconds: ${var.max_job_seconds}
+
+      queue:
+        enabled: true
+
+      tags:
+        product: ${var.product_tag}
+        cost_center: ${var.cost_center}
+        pipeline: demand_forecast_orchestrator
+
+      # Unpaused in prd, paused in dev and qa — set per target by `trigger_pause_status`
+      # in databricks.yml, so the schedule is never hardcoded to an environment here.
+      schedule:
+        quartz_cron_expression: "0 30 5 * * ?"
+        timezone_id: America/Bogota
+
+      parameters:
+        - name: as_of
+          default: "{{job.trigger.time.iso_date}}"
+
+      email_notifications:
+        on_failure:
+          - ${var.alert_email}
+
+      tasks:
+        - task_key: forecast_all_countries
+          description: One child pipeline run per market.
+          timeout_seconds: ${var.max_job_seconds}
+          for_each_task:
+            inputs: ${var.countries}
+            concurrency: ${var.country_concurrency}
+            task:
+              task_key: country_pipeline
+              # No retries here. The child job already retries its own idempotent tasks;
+              # retrying the whole market on top of that would re-run a pipeline that may
+              # have failed for a reason no amount of repetition fixes.
+              max_retries: 0
+              timeout_seconds: ${var.max_job_seconds}
+              run_job_task:
+                job_id: ${resources.jobs.demand_forecast_country.id}
+                job_parameters:
+                  country: "{{input}}"
+                  env: ${bundle.target}
+                  as_of: "{{job.parameters.as_of}}"
+
+        - task_key: fleet_summary
+          description: >-
+            Always runs. Reports which markets completed and which did not, so a partial
+            failure is one line in one place rather than three job pages to open.
+          depends_on:
+            - task_key: forecast_all_countries
+          run_if: ALL_DONE
+          environment_key: default
+          max_retries: 0
+          timeout_seconds: 600
+          python_wheel_task:
+            package_name: aifactory
+            entry_point: aifactory-fleet-summary
+            parameters:
+              - --env
+              - ${bundle.target}
+              - --as-of
+              - "{{job.parameters.as_of}}"
+              - --countries
+              - ${var.countries}
+              - --fan-out-state
+              - "{{tasks.forecast_all_countries.result_state}}"
+
+      environments:
+        - environment_key: default
+          spec:
+            client: "3"
+            dependencies:
+              - ./dist/*.whl

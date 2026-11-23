@@ -1,0 +1,105 @@
+{
+  "_comment": [
+    "Example cluster policy for a PAID Databricks workspace. It is not applied by this",
+    "bundle and cannot be: Databricks Free Edition is serverless-only and exposes no",
+    "cluster-policy API, so there is no classic compute for a policy to constrain.",
+    "It is included because a cost story that stops at tagging is only half of one —",
+    "tags tell you afterwards what you spent; a policy is what stops the spending.",
+    "On a paid workspace this is deployed as a `resources.cluster_policies` entry and",
+    "referenced from each job cluster by `policy_id`."
+  ],
+
+  "cluster_type": {
+    "type": "fixed",
+    "value": "job",
+    "hidden": true
+  },
+
+  "spark_version": {
+    "type": "regex",
+    "pattern": "1[5-9]\\.[0-9]+\\.x-scala.*",
+    "defaultValue": "15.4.x-scala2.12"
+  },
+
+  "node_type_id": {
+    "type": "allowlist",
+    "values": ["Standard_D4ds_v5", "Standard_D8ds_v5", "Standard_D16ds_v5"],
+    "defaultValue": "Standard_D4ds_v5",
+    "_comment": "General-purpose only. A forecasting backtest is CPU and memory bound; nobody on this pipeline needs a GPU node, and allowing one is how a job that costs cents starts costing dollars."
+  },
+
+  "driver_node_type_id": {
+    "type": "allowlist",
+    "values": ["Standard_D4ds_v5", "Standard_D8ds_v5"],
+    "defaultValue": "Standard_D4ds_v5"
+  },
+
+  "autoscale.min_workers": {
+    "type": "fixed",
+    "value": 1,
+    "hidden": true
+  },
+
+  "autoscale.max_workers": {
+    "type": "range",
+    "minValue": 1,
+    "maxValue": 8,
+    "defaultValue": 4,
+    "_comment": "A hard ceiling, not a suggestion. Without one, a bad join in a single task can scale the cluster to the account limit before anyone sees the bill."
+  },
+
+  "autotermination_minutes": {
+    "type": "range",
+    "minValue": 10,
+    "maxValue": 30,
+    "defaultValue": 15,
+    "_comment": "The single most effective cost control there is: the largest avoidable line on most Databricks bills is idle compute nobody shut down."
+  },
+
+  "enable_elastic_disk": {
+    "type": "fixed",
+    "value": true,
+    "hidden": true
+  },
+
+  "runtime_engine": {
+    "type": "fixed",
+    "value": "PHOTON",
+    "hidden": true
+  },
+
+  "data_security_mode": {
+    "type": "fixed",
+    "value": "SINGLE_USER",
+    "hidden": true,
+    "_comment": "Required for Unity Catalog model registry access from a job cluster."
+  },
+
+  "custom_tags.product": {
+    "type": "fixed",
+    "value": "demand_forecast",
+    "_comment": "The three FinOps dimensions are enforced here rather than trusted to each job definition. A tag that can be forgotten will be."
+  },
+
+  "custom_tags.cost_center": {
+    "type": "fixed",
+    "value": "data-platform"
+  },
+
+  "custom_tags.country": {
+    "type": "regex",
+    "pattern": "^(mx|co|ar)$",
+    "_comment": "Unset or misspelled, spend lands in an 'unattributed' bucket nobody owns. The regex is the cheapest way to make attribution mandatory."
+  },
+
+  "custom_tags.env": {
+    "type": "allowlist",
+    "values": ["dev", "qa", "prd"]
+  },
+
+  "spark_conf.spark.databricks.delta.preview.enabled": {
+    "type": "fixed",
+    "value": "true",
+    "hidden": true
+  }
+}

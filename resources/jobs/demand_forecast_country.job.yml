@@ -1,0 +1,180 @@
+# The per-country pipeline. One run = one market, one as-of date.
+#
+# DAG:
+#
+#        ingest
+#         /   \                      (fan-out: both gated on ALL_SUCCESS)
+#   quality_gate  profile_data
+#        |
+#   backtest_champion
+#         \   |   /
+#          run_log                   (fan-in: ALL_DONE — runs even when the rest failed)
+#
+# Two things are deliberate and worth reading the code for:
+#
+# 1. Retries are set per task, not globally. A retry is only safe where the task is
+#    idempotent. `ingest` overwrites a partition keyed by as-of, so retrying it is free.
+#    `quality_gate` gets zero retries because re-asking a question about unchanged data
+#    gives the same answer and only delays the alert.
+#
+# 2. `run_log` uses `run_if: ALL_DONE` and is handed each upstream task's result state
+#    through `{{tasks.<key>.result_state}}`. It writes the log row and *then* re-raises if
+#    anything failed. Without that re-raise, an always-running final task would make every
+#    run report success — the most common way an ALL_DONE task quietly breaks alerting.
+
+resources:
+  jobs:
+    demand_forecast_country:
+      name: demand_forecast_country
+
+      # One run at a time per market. A forecasting job that overlaps itself writes the same
+      # tables from two runs with different as-of dates, and whichever finishes last wins.
+      max_concurrent_runs: 1
+      timeout_seconds: ${var.max_job_seconds}
+
+      queue:
+        enabled: true
+
+      tags:
+        product: ${var.product_tag}
+        cost_center: ${var.cost_center}
+        pipeline: demand_forecast_country
+
+      parameters:
+        - name: country
+          default: mx
+        - name: env
+          default: ${bundle.target}
+        - name: as_of
+          # Pinned to the trigger time, not to "today" inside the code. A re-run of
+          # yesterday's failed job must reproduce yesterday's numbers.
+          default: "{{job.trigger.time.iso_date}}"
+
+      email_notifications:
+        on_failure:
+          - ${var.alert_email}
+        # Deliberately no on_success: a notification nobody reads is worse than none, because
+        # it teaches the team to filter the address the failures also arrive at.
+
+      environments:
+        - environment_key: default
+          spec:
+            client: "3"
+            dependencies:
+              - ./dist/*.whl
+
+      tasks:
+        - task_key: ingest
+          description: Land the raw demand panel for this market.
+          environment_key: default
+          max_retries: 2
+          min_retry_interval_millis: 60000
+          retry_on_timeout: true
+          timeout_seconds: 1800
+          python_wheel_task:
+            package_name: aifactory
+            entry_point: aifactory-ingest
+            parameters:
+              - --country
+              - "{{job.parameters.country}}"
+              - --env
+              - "{{job.parameters.env}}"
+              - --as-of
+              - "{{job.parameters.as_of}}"
+
+        - task_key: quality_gate
+          description: >-
+            Every pre-publish gate. A blocking failure stops the run here, before a model is
+            trained or a forecast is published on bad data.
+          depends_on:
+            - task_key: ingest
+          run_if: ALL_SUCCESS
+          environment_key: default
+          # No retries: the data does not change between attempts, so a retry only delays
+          # the alert and burns compute.
+          max_retries: 0
+          timeout_seconds: 900
+          python_wheel_task:
+            package_name: aifactory
+            entry_point: aifactory-quality-gate
+            parameters:
+              - --country
+              - "{{job.parameters.country}}"
+              - --env
+              - "{{job.parameters.env}}"
+              - --as-of
+              - "{{job.parameters.as_of}}"
+
+        - task_key: profile_data
+          description: >-
+            Advisory profile of the landed panel. Depends on ingest rather than on the gates,
+            so it still runs when a gate fails — which is exactly when the profile is read.
+          depends_on:
+            - task_key: ingest
+          run_if: ALL_SUCCESS
+          environment_key: default
+          max_retries: 1
+          timeout_seconds: 900
+          python_wheel_task:
+            package_name: aifactory
+            entry_point: aifactory-profile-data
+            parameters:
+              - --country
+              - "{{job.parameters.country}}"
+              - --env
+              - "{{job.parameters.env}}"
+              - --as-of
+              - "{{job.parameters.as_of}}"
+
+        - task_key: backtest_champion
+          description: Rolling-origin backtest of the Champion, one metrics row per fold.
+          depends_on:
+            - task_key: quality_gate
+          run_if: ALL_SUCCESS
+          environment_key: default
+          max_retries: 1
+          timeout_seconds: 3600
+          python_wheel_task:
+            package_name: aifactory
+            entry_point: aifactory-backtest-champion
+            parameters:
+              - --country
+              - "{{job.parameters.country}}"
+              - --env
+              - "{{job.parameters.env}}"
+              - --as-of
+              - "{{job.parameters.as_of}}"
+
+        - task_key: run_log
+          description: >-
+            Always runs. Writes one row per upstream task with its terminal state, then fails
+            the run if any of them did not succeed.
+          depends_on:
+            - task_key: ingest
+            - task_key: quality_gate
+            - task_key: profile_data
+            - task_key: backtest_champion
+          run_if: ALL_DONE
+          environment_key: default
+          max_retries: 0
+          timeout_seconds: 600
+          python_wheel_task:
+            package_name: aifactory
+            entry_point: aifactory-run-log
+            parameters:
+              - --country
+              - "{{job.parameters.country}}"
+              - --env
+              - "{{job.parameters.env}}"
+              - --as-of
+              - "{{job.parameters.as_of}}"
+              - --job-run-id
+              - "{{job.run_id}}"
+              - --task-state
+              - "ingest={{tasks.ingest.result_state}}"
+              - --task-state
+              - "quality_gate={{tasks.quality_gate.result_state}}"
+              - --task-state
+              - "profile_data={{tasks.profile_data.result_state}}"
+              - --task-state
+              - "backtest_champion={{tasks.backtest_champion.result_state}}"
